@@ -18,7 +18,7 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 # Voice Configuration
-SYSTEM_MESSAGE = os.getenv("SYSTEM_MESSAGE", 
+DEFAULT_SYSTEM_MESSAGE = os.getenv("SYSTEM_MESSAGE", 
     "You are a customer calling Bella Roma Italian restaurant. You are interested in ordering "
     "Italian food for dinner. You should ask about the menu, specials, and popular dishes. "
     "You're particularly interested in authentic Italian cuisine and might ask about appetizers, "

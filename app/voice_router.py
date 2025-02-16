@@ -9,10 +9,11 @@ import base64
 import asyncio
 import websockets
 import logging
+import random  # Add random import
 from typing import Optional, List, Dict
 from uuid import uuid4
 from app.database import create_call_record, update_call_record, supabase_client
-from app.config import OPENAI_API_KEY, SYSTEM_MESSAGE, ssl_context, TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER, SUPABASE_URL, SUPABASE_KEY
+from app.config import OPENAI_API_KEY, DEFAULT_SYSTEM_MESSAGE, ssl_context, TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER, SUPABASE_URL, SUPABASE_KEY
 from app.services.analysis_service import analyze_conversation
 import os
 from datetime import datetime
@@ -169,6 +170,88 @@ async def handle_incoming_call(request: Request):
     logger.info(f"Returning TwiML: {str(response)}")
     return HTMLResponse(content=str(response), media_type="application/xml")
 
+async def get_latest_test_configuration(phone_number: str) -> Dict:
+    """Fetch the most recent test configuration for a phone number."""
+    try:
+        result = supabase_client.table('test_configurations')\
+            .select('*')\
+            .order('created_at', desc=True)\
+            .limit(1)\
+            .execute()
+            
+        if result.data:
+            config = result.data[0]
+            logger.info(f"Found test configuration for {phone_number}: {json.dumps(config, indent=2)}")
+            return config
+        else:
+            logger.warning(f"No test configuration found for {phone_number}, using default")
+            return None
+    except Exception as e:
+        logger.error(f"Error fetching test configuration: {str(e)}")
+        return None
+
+def build_system_message(config: Optional[Dict]) -> str:
+    """Build system message from test configuration."""
+    if not config:
+        default_message = os.getenv("SYSTEM_MESSAGE", DEFAULT_SYSTEM_MESSAGE)
+        logger.info(f"Using default system message: {default_message}")
+        return default_message
+        
+    try:
+        # Build a comprehensive system message using all relevant configuration fields
+        message_parts = []
+        
+        # Helper function to safely get a value from config
+        def get_config_value(key: str, default_value: any) -> any:
+            value = config.get(key, default_value)
+            if isinstance(value, list) and value:
+                return random.choice(value)
+            return value
+        
+        # Basic role and context
+        message_parts.append(f"You are a {get_config_value('accent_types', 'neutral')} speaking customer service agent")
+        message_parts.append(f"in the {get_config_value('industry', 'general service')} industry")
+        
+        # Speaking characteristics
+        speaking_pace = get_config_value('speaking_pace', None)
+        if speaking_pace:
+            message_parts.append(f"Speak at a {speaking_pace} pace")
+            
+        emotion_types = get_config_value('emotion_types', None)
+        if emotion_types:
+            message_parts.append(f"Express {emotion_types} emotions")
+            
+        # Background conditions
+        background_noise = get_config_value('background_noise', None)
+        if background_noise:
+            message_parts.append(f"You are in an environment with {background_noise} background noise")
+            
+        # Conversation parameters
+        max_turns = get_config_value('max_turns', None)
+        if max_turns:
+            message_parts.append(f"Limit the conversation to approximately {max_turns} turns")
+            
+        complexity_level = get_config_value('complexity_level', None)
+        if complexity_level:
+            message_parts.append(f"Maintain a complexity level of {complexity_level} in your responses")
+            
+        # Template and specific instructions
+        prompt_template = get_config_value('prompt_template', None)
+        if prompt_template:
+            message_parts.append(prompt_template)
+        
+        # Always end with goodbye instruction
+        message_parts.append("IMPORTANT: End the conversation by saying ONLY 'Goodbye!' or 'Bye!' as your last message.")
+        
+        final_message = " ".join(message_parts)
+        logger.info(f"Built custom system message from config with random choices: {final_message}")
+        return final_message
+    except Exception as e:
+        logger.error(f"Error building system message from config: {str(e)}")
+        default_message = os.getenv("SYSTEM_MESSAGE", DEFAULT_SYSTEM_MESSAGE)
+        logger.info(f"Falling back to default system message: {default_message}")
+        return default_message
+
 @router.websocket("/media-stream")
 async def handle_media_stream(websocket: WebSocket):
     await websocket.accept()
@@ -182,18 +265,7 @@ async def handle_media_stream(websocket: WebSocket):
     conversation_history = []
     message_timestamps = []  # Track message timestamps
     websocket_connected = True
-    
-    # Get the current system message
-    current_system_message = os.getenv("SYSTEM_MESSAGE", 
-        "You are a customer calling Bella Roma Italian restaurant. You are interested in ordering "
-        "Italian food for dinner. You should ask about the menu, specials, and popular dishes. "
-        "You're particularly interested in authentic Italian cuisine and might ask about appetizers, "
-        "main courses, and desserts. Be friendly but also somewhat indecisive, as you want to hear "
-        "about different options before making your choice. You can ask about ingredients, preparation "
-        "methods, and portion sizes. If you like what you hear, you'll eventually place an order."
-        "End every conversation with 'Goodbye!' or 'Bye' AND NOTHING ELSE"
-    )
-    logger.info(f"Using system message: {current_system_message}")
+    current_phone_number = None
     
     try:
         async with websockets.connect(
@@ -204,7 +276,11 @@ async def handle_media_stream(websocket: WebSocket):
             },
             ssl=ssl_context
         ) as openai_ws:
-            # Initialize OpenAI session
+            # Initialize OpenAI session with default message first
+            current_system_message = os.getenv("SYSTEM_MESSAGE", DEFAULT_SYSTEM_MESSAGE)
+            logger.info(f"Initial system message: {current_system_message}")
+            
+            # We'll update the session once we get the phone number from the start event
             await openai_ws.send(json.dumps({
                 "type": "session.update",
                 "session": {
@@ -221,25 +297,8 @@ async def handle_media_stream(websocket: WebSocket):
                 }
             }))
 
-            # Send initial conversation prompt to make AI speak first
-            initial_conversation = {
-                "type": "conversation.item.create",
-                "item": {
-                    "type": "message",
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "input_text",
-                            "text": "Greet the user with 'Hello! What is on the menu for today?'"
-                        }
-                    ]
-                }
-            }
-            await openai_ws.send(json.dumps(initial_conversation))
-            await openai_ws.send(json.dumps({"type": "response.create"}))
-            
             async def handle_twilio_messages():
-                nonlocal stream_sid, current_call_sid, current_simulation_id, latest_media_timestamp, websocket_connected
+                nonlocal stream_sid, current_call_sid, current_simulation_id, latest_media_timestamp, websocket_connected, current_phone_number, current_system_message
                 try:
                     while websocket_connected:
                         try:
@@ -256,19 +315,34 @@ async def handle_media_stream(websocket: WebSocket):
                                 current_call_sid = data['start'].get('callSid')
                                 logger.info(f"Stream started: {stream_sid}, Call SID: {current_call_sid}")
                                 
-                                # Fetch existing record and transcript if any
+                                # Fetch call details including phone number
                                 if current_call_sid:
                                     try:
-                                        # Find by call_sid
                                         result = supabase_client.table('voice_conversations')\
-                                            .select('simulation_id, transcript')\
+                                            .select('simulation_id, transcript, phone_number')\
                                             .eq('call_sid', current_call_sid)\
                                             .execute()
                                         
                                         if result.data:
                                             current_simulation_id = result.data[0]['simulation_id']
+                                            current_phone_number = result.data[0]['phone_number']
                                             if result.data[0].get('transcript'):
                                                 conversation_history = result.data[0]['transcript']
+                                                
+                                            # Get test configuration and update system message
+                                            if current_phone_number:
+                                                config = await get_latest_test_configuration(current_phone_number)
+                                                if config:
+                                                    current_system_message = build_system_message(config)
+                                                    # Update OpenAI session with new system message
+                                                    await openai_ws.send(json.dumps({
+                                                        "type": "session.update",
+                                                        "session": {
+                                                            "instructions": current_system_message
+                                                        }
+                                                    }))
+                                                    logger.info(f"Updated system message for {current_phone_number}")
+                                            
                                             logger.info(f"Found existing record with simulation_id: {current_simulation_id}")
                                     except Exception as e:
                                         logger.error(f"Error fetching existing transcript: {str(e)}")
