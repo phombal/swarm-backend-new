@@ -271,6 +271,34 @@ async def handle_media_stream(websocket: WebSocket):
                                 "timestamp": current_time,
                                 "type": "user"
                             })
+                            
+                            # Check for goodbye keywords in user's message
+                            if any(word.lower() in transcript.lower() for word in ["goodbye", "bye"]):
+                                logger.info("Goodbye detected in user message, ending call...")
+                                # Initialize Twilio client
+                                client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+                                if current_call_sid:
+                                    try:
+                                        # End the call
+                                        client.calls(current_call_sid).update(status="completed")
+                                        logger.info(f"Call {current_call_sid} ended successfully")
+                                        # Update call record
+                                        await update_call_record(
+                                            simulation_id=current_simulation_id,
+                                            call_sid=current_call_sid,
+                                            updates={
+                                                "status": "completed",
+                                                "transcript": conversation_history,
+                                                "message_timestamps": message_timestamps
+                                            }
+                                        )
+                                    except Exception as e:
+                                        logger.error(f"Error ending call: {str(e)}")
+                                await websocket.close()
+                                if openai_ws.open:
+                                    await openai_ws.close()
+                                return
+                            
                             if current_call_sid and current_simulation_id:
                                 await update_call_record(
                                     simulation_id=current_simulation_id,
@@ -310,6 +338,34 @@ async def handle_media_stream(websocket: WebSocket):
                                             "timestamp": current_time,
                                             "type": "assistant"
                                         })
+                                        
+                                        # Check for goodbye keywords in assistant's message
+                                        if any(word.lower() in assistant_text.lower() for word in ["goodbye", "bye"]):
+                                            logger.info("Goodbye detected in assistant message, ending call...")
+                                            # Initialize Twilio client
+                                            client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+                                            if current_call_sid:
+                                                try:
+                                                    # End the call
+                                                    client.calls(current_call_sid).update(status="completed")
+                                                    logger.info(f"Call {current_call_sid} ended successfully")
+                                                    # Update call record
+                                                    await update_call_record(
+                                                        simulation_id=current_simulation_id,
+                                                        call_sid=current_call_sid,
+                                                        updates={
+                                                            "status": "completed",
+                                                            "transcript": conversation_history,
+                                                            "message_timestamps": message_timestamps
+                                                        }
+                                                    )
+                                                except Exception as e:
+                                                    logger.error(f"Error ending call: {str(e)}")
+                                            await websocket.close()
+                                            if openai_ws.open:
+                                                await openai_ws.close()
+                                            return
+                                        
                                         if current_call_sid and current_simulation_id:
                                             await update_call_record(
                                                 simulation_id=current_simulation_id,
