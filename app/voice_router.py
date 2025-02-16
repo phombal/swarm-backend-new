@@ -46,9 +46,9 @@ async def make_test_call(to_number: str):
         call = client.calls.create(
             to=to_number,
             from_=TWILIO_PHONE_NUMBER,
-            url=f"https://9903-68-65-171-65.ngrok-free.app/incoming-call",
+            url=f"https://swarm-backend-new.onrender.com/incoming-call",
             record=True,
-            status_callback=f"https://9903-68-65-171-65.ngrok-free.app/call-status",
+            status_callback=f"https://swarm-backend-new.onrender.com/call-status",
             status_callback_event=['initiated', 'ringing', 'answered', 'completed']
         )
         
@@ -398,9 +398,9 @@ async def make_batch_test_calls(to_number: str, num_calls: int = 1):
                 call = client.calls.create(
                     to=to_number,
                     from_=TWILIO_PHONE_NUMBER,
-                    url=f"https://9903-68-65-171-65.ngrok-free.app/incoming-call",
+                    url=f"https://swarm-backend-new.onrender.com/incoming-call",
                     record=True,
-                    status_callback=f"https://9903-68-65-171-65.ngrok-free.app/call-status",
+                    status_callback=f"https://swarm-backend-new.onrender.com/call-status",
                     status_callback_event=['initiated', 'ringing', 'answered', 'completed']
                 )
                 
@@ -510,9 +510,9 @@ async def make_multiple_calls(to_number: str, num_calls: int = 1):
                 call = client.calls.create(
                     to=to_number,
                     from_=TWILIO_PHONE_NUMBER,
-                    url=f"https://9903-68-65-171-65.ngrok-free.app/incoming-call",
+                    url=f"https://swarm-backend-new.onrender.com/incoming-call",
                     record=True,
-                    status_callback=f"https://9903-68-65-171-65.ngrok-free.app/call-status",
+                    status_callback=f"https://swarm-backend-new.onrender.com/call-status",
                     status_callback_event=['initiated', 'ringing', 'answered', 'completed']
                 )
                 
