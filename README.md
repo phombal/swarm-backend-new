@@ -1,6 +1,6 @@
 # Swarm Voice AI Testing Platform - Backend
 
-A sophisticated voice call platform that enables thousands of current AI-powered phone conversations using OpenAI's GPT-4, Twilio for telephony, and Supabase for data storage. The platform supports configurable AI behaviors, batch calling, and detailed conversation analysis.
+A sophisticated voice call platform that enables thousands of concurrent AI-powered phone conversations using OpenAI's GPT-4, Twilio for telephony, and Supabase for data storage. The platform supports configurable AI behaviors, batch calling, and detailed conversation analysis.
 
 ## Features
 
