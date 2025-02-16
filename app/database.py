@@ -8,8 +8,8 @@ from app.config import SUPABASE_URL, SUPABASE_KEY
 logger = logging.getLogger(__name__)
 
 try:
-    # Initialize with minimal options for version 2.0.0
-    supabase_client: Client = create_client(SUPABASE_URL, SUPABASE_KEY, options={'auto_refresh_token': False, 'persist_session': False, 'schema': 'public'})
+    # Initialize Supabase client with version 2.0.0
+    supabase_client: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 except Exception as e:
     logger.error(f"Failed to initialize Supabase client: {str(e)}")
     raise
