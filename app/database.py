@@ -8,10 +8,8 @@ from app.config import SUPABASE_URL, SUPABASE_KEY
 logger = logging.getLogger(__name__)
 
 try:
-    supabase_client: Client = create_client(
-        supabase_url=SUPABASE_URL,
-        supabase_key=SUPABASE_KEY
-    )
+    # Initialize without any additional options
+    supabase_client: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 except Exception as e:
     logger.error(f"Failed to initialize Supabase client: {str(e)}")
     raise
