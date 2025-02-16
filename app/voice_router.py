@@ -10,7 +10,7 @@ import websockets
 import logging
 from typing import Optional, List
 from app.database import create_call_record, update_call_record, supabase_client
-from app.config import OPENAI_API_KEY, SYSTEM_MESSAGE, ssl_context, TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER
+from app.config import OPENAI_API_KEY, SYSTEM_MESSAGE, ssl_context, TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER, SUPABASE_URL, SUPABASE_KEY
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -30,6 +30,13 @@ async def make_test_call(to_number: str):
         # Initialize Twilio client
         client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
         
+        # Create call record first
+        call_record_id = await create_call_record(
+            simulation_id="test_simulation",
+            call_sid="pending",  # We'll update this after the call is created
+            phone_number=to_number
+        )
+        
         # Make the call
         call = client.calls.create(
             to=to_number,
@@ -40,10 +47,20 @@ async def make_test_call(to_number: str):
             status_callback_event=['initiated', 'ringing', 'answered', 'completed']
         )
         
+        # Update the call record with the actual call_sid
+        await update_call_record(
+            simulation_id="test_simulation",
+            call_sid="pending",
+            updates={
+                "call_sid": call.sid
+            }
+        )
+        
         return {
             "status": "success",
             "message": "Test call initiated",
-            "call_sid": call.sid
+            "call_sid": call.sid,
+            "to_number": to_number
         }
     except Exception as e:
         logger.error(f"Error making test call: {str(e)}")
@@ -98,9 +115,21 @@ async def handle_incoming_call(request: Request):
         try:
             form_data = await request.form()
             call_sid = form_data.get('CallSid')
+            to_number = form_data.get('To', 'unknown')
             if call_sid:
-                await create_call_record("test_simulation", call_sid)
-                logger.info(f"Created database record for call {call_sid}")
+                # Only create a new record if one doesn't exist
+                result = supabase_client.table('voice_conversations')\
+                    .select('id')\
+                    .eq('call_sid', call_sid)\
+                    .execute()
+                
+                if not result.data:
+                    await create_call_record(
+                        simulation_id="test_simulation",
+                        call_sid=call_sid,
+                        phone_number=to_number
+                    )
+                    logger.info(f"Created database record for call {call_sid} to {to_number}")
         except Exception as e:
             logger.error(f"Error processing form data: {str(e)}")
     
@@ -152,7 +181,7 @@ async def handle_media_stream(websocket: WebSocket):
                 "content": [
                     {
                         "type": "input_text",
-                        "text": "Greet the user with 'Hello! Welcome to our restaurant. I'm your AI assistant and I'll be helping you today. Can I take your order or would you like to hear our specials?'"
+                        "text": "Greet the user with 'Hello! What is on the menu for today?'"
                     }
                 ]
             }
@@ -209,17 +238,23 @@ async def handle_media_stream(websocket: WebSocket):
                             }
                         })
                     
-                    # Handle assistant responses
-                    elif response.get('type') == 'response.text.delta' and 'text' in response:
-                        assistant_text = response['text']
-                        logger.info(f"Assistant said: {assistant_text}")
-                        conversation_history.append(f"Assistant: {assistant_text}")
-                        if current_call_sid:
-                            await update_call_record(
-                                simulation_id="test_simulation",
-                                call_sid=current_call_sid,
-                                updates={"transcript": conversation_history}
-                            )
+                    # Handle completed assistant responses
+                    elif response.get('type') == 'response.done':
+                        response_data = response.get('response', {})
+                        output = response_data.get('output', [])
+                        for item in output:
+                            if item.get('role') == 'assistant' and item.get('content'):
+                                for content in item['content']:
+                                    if content.get('type') == 'audio' and content.get('transcript'):
+                                        assistant_text = content['transcript']
+                                        logger.info(f"Assistant response: {assistant_text}")
+                                        conversation_history.append(f"Assistant: {assistant_text}")
+                                        if current_call_sid:
+                                            await update_call_record(
+                                                simulation_id="test_simulation",
+                                                call_sid=current_call_sid,
+                                                updates={"transcript": conversation_history}
+                                            )
             except Exception as e:
                 logger.error(f"Error in OpenAI message handling: {str(e)}")
         

@@ -17,10 +17,11 @@ CREATE TABLE IF NOT EXISTS simulations (
 );
 
 -- Create call_records table
-CREATE TABLE IF NOT EXISTS call_records (
+CREATE TABLE IF NOT EXISTS voice_conversations (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    simulation_id UUID REFERENCES simulations(id),
+    simulation_id TEXT NOT NULL,
     call_sid TEXT NOT NULL,
+    phone_number TEXT,
     status TEXT NOT NULL,
     duration INTEGER,
     transcript JSONB,
