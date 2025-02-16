@@ -1,4 +1,5 @@
 import os
+import ssl
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -16,10 +17,19 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-# Application Configuration
-STRATIFY_BASE_URL = os.getenv("STRATIFY_BASE_URL", "http://localhost:8000")
-MAX_CONCURRENT_CALLS = int(os.getenv("MAX_CONCURRENT_CALLS", "100"))
-DEFAULT_MAX_TURNS = int(os.getenv("DEFAULT_MAX_TURNS", "10"))
+# Voice Configuration
+SYSTEM_MESSAGE = os.getenv("SYSTEM_MESSAGE", 
+    "You are an AI assistant at a restaurant. Your role is to greet customers warmly, "
+    "take their orders, answer questions about the menu, and provide helpful suggestions. "
+    "Keep your responses friendly but concise. If a customer asks about specials, "
+    "recommend our most popular dishes. After taking an order, always confirm the items "
+    "ordered and provide an estimated preparation time."
+)
+
+# SSL Context for WebSocket connections
+ssl_context = ssl.create_default_context()
+ssl_context.check_hostname = False
+ssl_context.verify_mode = ssl.CERT_NONE
 
 # Ensure required environment variables are set
 required_vars = [

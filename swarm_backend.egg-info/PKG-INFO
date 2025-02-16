@@ -1,0 +1,14 @@
+Metadata-Version: 2.2
+Name: swarm-backend
+Version: 0.1.0
+Requires-Python: >=3.8
+Requires-Dist: fastapi>=0.109.2
+Requires-Dist: uvicorn>=0.27.1
+Requires-Dist: supabase>=1.2.0
+Requires-Dist: python-multipart>=0.0.7
+Requires-Dist: pydantic>=2.6.1
+Requires-Dist: pytest>=8.0.0
+Requires-Dist: pytest-asyncio>=0.23.5
+Requires-Dist: pytest-env>=1.1.3
+Dynamic: requires-dist
+Dynamic: requires-python

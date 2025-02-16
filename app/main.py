@@ -1,5 +1,4 @@
-from typing import Dict, List, Optional
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import logging
 
@@ -7,22 +6,22 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Stratify Testing Platform")
+app = FastAPI(title="Voice Call Platform")
 
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, replace with specific origins
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Import routers after FastAPI initialization
-from app.routers import test_simulations
+# Import router after FastAPI initialization
+from app.voice_router import router as voice_router
 
-# Include routers
-app.include_router(test_simulations.router, prefix="/simulations", tags=["Test Simulations"])
+# Include router
+app.include_router(voice_router, tags=["Voice"])
 
 @app.on_event("startup")
 async def startup_event():
@@ -31,4 +30,4 @@ async def startup_event():
 
 @app.get("/")
 async def root():
-    return {"message": "Welcome to Stratify Testing Platform"} 
+    return {"message": "Voice Call Platform is running"} 
