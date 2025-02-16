@@ -1,6 +1,7 @@
-from typing import Dict
+from typing import Dict, Optional
 import logging
 from datetime import datetime, UTC
+from uuid import uuid4
 from supabase import create_client, Client
 from app.config import SUPABASE_URL, SUPABASE_KEY
 
@@ -25,17 +26,29 @@ async def init_db():
         logger.error(f"Error initializing database connection: {str(e)}")
         raise
 
-async def create_call_record(simulation_id: str, call_sid: str, phone_number: str, status: str = "initiated") -> str:
+async def create_call_record(simulation_id: str, call_sid: str, phone_number: str, user_id: str, status: str = "initiated") -> str:
     """Create a new voice conversation record."""
     try:
+        now = datetime.now(UTC).isoformat()
         result = supabase_client.table("voice_conversations").insert({
+            "id": str(uuid4()),
             "simulation_id": simulation_id,
             "call_sid": call_sid,
             "phone_number": phone_number,
             "status": status,
-            "transcript": [],  # Initialize with empty array
-            "created_at": datetime.now(UTC).isoformat(),
-            "updated_at": datetime.now(UTC).isoformat()
+            "duration": None,
+            "transcript": [],
+            "message_timestamps": [],
+            "token_counts": {},
+            "response_times": [],
+            "error_details": [],
+            "conversation_metrics": {},
+            "user_id": user_id,
+            "created_at": now,
+            "updated_at": now,
+            "error_severity": None,
+            "recovery_attempt": None,
+            "recovery_success": None
         }).execute()
         
         return result.data[0]["id"]
@@ -53,9 +66,12 @@ async def update_call_record(
         # Ensure updated_at is set
         updates["updated_at"] = datetime.now(UTC).isoformat()
         
-        # If updating transcript, ensure it's a list
-        if "transcript" in updates and updates["transcript"] is None:
-            updates["transcript"] = []
+        # Initialize empty lists/dicts for JSON fields if they're None
+        json_fields = ["transcript", "message_timestamps", "token_counts", 
+                      "response_times", "error_details", "conversation_metrics"]
+        for field in json_fields:
+            if field in updates and updates[field] is None:
+                updates[field] = [] if field != "token_counts" and field != "conversation_metrics" else {}
         
         # First try to find by call_sid
         response = supabase_client.table('voice_conversations')\
