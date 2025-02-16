@@ -11,6 +11,7 @@ import logging
 from typing import Optional, List
 from app.database import create_call_record, update_call_record, supabase_client
 from app.config import OPENAI_API_KEY, SYSTEM_MESSAGE, ssl_context, TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER, SUPABASE_URL, SUPABASE_KEY
+import os
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -147,6 +148,17 @@ async def handle_media_stream(websocket: WebSocket):
     current_call_sid = None
     latest_media_timestamp = 0
     
+    # Get the current system message
+    current_system_message = os.getenv("SYSTEM_MESSAGE", 
+        "You are a customer calling Bella Roma Italian restaurant. You are interested in ordering "
+        "Italian food for dinner. You should ask about the menu, specials, and popular dishes. "
+        "You're particularly interested in authentic Italian cuisine and might ask about appetizers, "
+        "main courses, and desserts. Be friendly but also somewhat indecisive, as you want to hear "
+        "about different options before making your choice. You can ask about ingredients, preparation "
+        "methods, and portion sizes. If you like what you hear, you'll eventually place an order."
+    )
+    logger.info(f"Using system message: {current_system_message}")
+    
     async with websockets.connect(
         'wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-10-01',
         extra_headers={
@@ -163,7 +175,7 @@ async def handle_media_stream(websocket: WebSocket):
                 "input_audio_format": "g711_ulaw",
                 "output_audio_format": "g711_ulaw",
                 "voice": "sage",
-                "instructions": SYSTEM_MESSAGE,
+                "instructions": current_system_message,
                 "modalities": ["text", "audio"],
                 "temperature": 0.7,
                 "input_audio_transcription": {
