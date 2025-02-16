@@ -12,13 +12,14 @@ from typing import Optional, List
 from app.database import create_call_record, update_call_record, supabase_client
 from app.config import OPENAI_API_KEY, SYSTEM_MESSAGE, ssl_context, TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER, SUPABASE_URL, SUPABASE_KEY
 import os
+from datetime import datetime
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-conversation_history: List[str] = []
+job_counter = 0
 
 @router.get("/", response_class=JSONResponse)
 async def index():
@@ -31,29 +32,31 @@ async def make_test_call(to_number: str):
         # Initialize Twilio client
         client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
         
-        # Create call record first
+        # Create call record first with a temporary call_sid
         call_record_id = await create_call_record(
             simulation_id="test_simulation",
-            call_sid="pending",  # We'll update this after the call is created
-            phone_number=to_number
+            call_sid="pending",  # We'll update this with an incremental ID
+            phone_number=to_number,
+            status="initiated"  # Add initial status
         )
         
         # Make the call
         call = client.calls.create(
             to=to_number,
             from_=TWILIO_PHONE_NUMBER,
-            url=f"https://64bf-171-64-77-68.ngrok-free.app/incoming-call",
+            url=f"https://9903-68-65-171-65.ngrok-free.app/incoming-call",
             record=True,
-            status_callback=f"https://64bf-171-64-77-68.ngrok-free.app/call-status",
+            status_callback=f"https://9903-68-65-171-65.ngrok-free.app/call-status",
             status_callback_event=['initiated', 'ringing', 'answered', 'completed']
         )
         
-        # Update the call record with the actual call_sid
+        # Update the call record with the Twilio call_sid
         await update_call_record(
             simulation_id="test_simulation",
             call_sid="pending",
             updates={
-                "call_sid": call.sid
+                "twilio_call_sid": call.sid,
+                "call_sid": call.sid  # Use Twilio's call_sid as our call_sid
             }
         )
         
@@ -79,13 +82,16 @@ async def call_status(
     """Handle call status updates."""
     logger.info(f"Call {CallSid} status update: {CallStatus}, Duration: {Duration}")
     try:
+        updates = {
+            "status": CallStatus
+        }
+        if Duration is not None:
+            updates["duration"] = Duration
+            
         await update_call_record(
             simulation_id="test_simulation",
-            call_sid=CallSid,
-            updates={
-                "status": CallStatus,
-                "duration": Duration
-            }
+            call_sid=CallSid,  # Use CallSid to find the record
+            updates=updates
         )
         return HTMLResponse(content="", status_code=200)
     except Exception as e:
@@ -118,13 +124,14 @@ async def handle_incoming_call(request: Request):
             call_sid = form_data.get('CallSid')
             to_number = form_data.get('To', 'unknown')
             if call_sid:
-                # Only create a new record if one doesn't exist
+                # Find the existing record for this call
                 result = supabase_client.table('voice_conversations')\
-                    .select('id')\
-                    .eq('call_sid', call_sid)\
+                    .select('simulation_id')\
+                    .eq('twilio_call_sid', call_sid)\
                     .execute()
                 
                 if not result.data:
+                    # If no record exists, create one with a default simulation_id
                     await create_call_record(
                         simulation_id="test_simulation",
                         call_sid=call_sid,
@@ -146,7 +153,9 @@ async def handle_media_stream(websocket: WebSocket):
     # Connection state
     stream_sid = None
     current_call_sid = None
+    current_simulation_id = None  # Add simulation_id tracking
     latest_media_timestamp = 0
+    conversation_history = []  # Per-connection transcript
     
     # Get the current system message
     current_system_message = os.getenv("SYSTEM_MESSAGE", 
@@ -202,7 +211,7 @@ async def handle_media_stream(websocket: WebSocket):
         await openai_ws.send(json.dumps({"type": "response.create"}))
         
         async def handle_twilio_messages():
-            nonlocal stream_sid, current_call_sid, latest_media_timestamp
+            nonlocal stream_sid, current_call_sid, current_simulation_id, latest_media_timestamp
             try:
                 async for message in websocket.iter_text():
                     data = json.loads(message)
@@ -216,6 +225,31 @@ async def handle_media_stream(websocket: WebSocket):
                         stream_sid = data['start']['streamSid']
                         current_call_sid = data['start'].get('callSid')
                         logger.info(f"Stream started: {stream_sid}, Call SID: {current_call_sid}")
+                        
+                        # Fetch existing record and transcript if any
+                        if current_call_sid:
+                            try:
+                                # First try to find by twilio_call_sid
+                                result = supabase_client.table('voice_conversations')\
+                                    .select('simulation_id, transcript')\
+                                    .eq('twilio_call_sid', current_call_sid)\
+                                    .execute()
+                                
+                                if not result.data:
+                                    # If not found, try by call_sid
+                                    result = supabase_client.table('voice_conversations')\
+                                        .select('simulation_id, transcript')\
+                                        .eq('call_sid', current_call_sid)\
+                                        .execute()
+                                
+                                if result.data:
+                                    current_simulation_id = result.data[0]['simulation_id']
+                                    if result.data[0].get('transcript'):
+                                        conversation_history = result.data[0]['transcript']
+                                    logger.info(f"Found existing record with simulation_id: {current_simulation_id}")
+                            except Exception as e:
+                                logger.error(f"Error fetching existing transcript: {str(e)}")
+                                
             except WebSocketDisconnect:
                 logger.info("Client disconnected")
                 if openai_ws.open:
@@ -230,13 +264,14 @@ async def handle_media_stream(websocket: WebSocket):
                     if response.get('type') == 'conversation.item.input_audio_transcription.completed':
                         transcript = response.get('transcript', '')
                         logger.info(f"User said: {transcript}")
-                        conversation_history.append(f"User: {transcript}")
-                        if current_call_sid:
-                            await update_call_record(
-                                simulation_id="test_simulation",
-                                call_sid=current_call_sid,
-                                updates={"transcript": conversation_history}
-                            )
+                        if transcript.strip():  # Only add non-empty transcripts
+                            conversation_history.append(f"User: {transcript}")
+                            if current_call_sid and current_simulation_id:
+                                await update_call_record(
+                                    simulation_id=current_simulation_id,
+                                    call_sid=current_call_sid,
+                                    updates={"transcript": conversation_history}
+                                )
                     
                     # Handle audio responses
                     elif response.get('type') == 'response.audio.delta' and 'delta' in response:
@@ -261,9 +296,9 @@ async def handle_media_stream(websocket: WebSocket):
                                         assistant_text = content['transcript']
                                         logger.info(f"Assistant response: {assistant_text}")
                                         conversation_history.append(f"Assistant: {assistant_text}")
-                                        if current_call_sid:
+                                        if current_call_sid and current_simulation_id:
                                             await update_call_record(
-                                                simulation_id="test_simulation",
+                                                simulation_id=current_simulation_id,
                                                 call_sid=current_call_sid,
                                                 updates={"transcript": conversation_history}
                                             )
@@ -273,10 +308,32 @@ async def handle_media_stream(websocket: WebSocket):
         await asyncio.gather(handle_twilio_messages(), handle_openai_messages())
 
 @router.get("/transcript", response_class=JSONResponse)
-async def get_transcript():
+async def get_transcript(
+    simulation_id: Optional[str] = None, 
+    call_sid: Optional[str] = None,
+    twilio_call_sid: Optional[str] = None
+):
+    """Get transcript for a specific call or latest transcript."""
     try:
-        result = supabase_client.table('voice_conversations').select('transcript').order('created_at', desc=True).limit(1).execute()
-        return {"transcript": result.data[0]["transcript"] if result.data else []}
+        query = supabase_client.table('voice_conversations').select('*')
+        
+        if simulation_id:
+            query = query.eq('simulation_id', simulation_id)
+        if call_sid:
+            query = query.eq('call_sid', call_sid)
+        if twilio_call_sid:
+            query = query.eq('twilio_call_sid', twilio_call_sid)
+            
+        result = query.order('created_at', desc=True).limit(1).execute()
+        
+        if result.data:
+            return {
+                "simulation_id": result.data[0]["simulation_id"],
+                "call_sid": result.data[0]["call_sid"],
+                "status": result.data[0]["status"],
+                "transcript": result.data[0]["transcript"] if result.data[0].get("transcript") else []
+            }
+        return {"transcript": []}
     except Exception as e:
         logger.error(f"Error getting transcript: {str(e)}")
         return {"transcript": []}
@@ -293,4 +350,198 @@ async def test_db():
             "error": str(e),
             "url": SUPABASE_URL,
             "key_prefix": SUPABASE_KEY[:6] if SUPABASE_KEY else None
+        }
+
+@router.post("/batch-test-calls")
+async def make_batch_test_calls(to_number: str, num_calls: int = 1):
+    """Make multiple test calls to a specified number."""
+    if num_calls > 10:
+        return {
+            "status": "error",
+            "message": "Maximum number of concurrent calls is 10"
+        }
+    
+    try:
+        calls = []
+        # Create multiple calls
+        for i in range(num_calls):
+            try:
+                # Initialize Twilio client
+                client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+                
+                # Create call record first
+                call_record_id = await create_call_record(
+                    simulation_id=f"test_simulation_{i}",
+                    call_sid="pending",
+                    phone_number=to_number
+                )
+                
+                # Add a small delay between calls to prevent overwhelming the system
+                if i > 0:
+                    await asyncio.sleep(10)
+                
+                # Make the call
+                call = client.calls.create(
+                    to=to_number,
+                    from_=TWILIO_PHONE_NUMBER,
+                    url=f"https://9903-68-65-171-65.ngrok-free.app/incoming-call",
+                    record=True,
+                    status_callback=f"https://9903-68-65-171-65.ngrok-free.app/call-status",
+                    status_callback_event=['initiated', 'ringing', 'answered', 'completed']
+                )
+                
+                # Update the call record with the actual call_sid
+                await update_call_record(
+                    simulation_id=f"test_simulation_{i}",
+                    call_sid="pending",
+                    updates={
+                        "call_sid": call.sid
+                    }
+                )
+                
+                calls.append({
+                    "call_number": i + 1,
+                    "call_sid": call.sid,
+                    "to_number": to_number,
+                    "status": "initiated"
+                })
+                
+                logger.info(f"Initiated call {i + 1} with SID: {call.sid}")
+                
+            except Exception as e:
+                logger.error(f"Error making call {i + 1}: {str(e)}")
+                calls.append({
+                    "call_number": i + 1,
+                    "error": str(e)
+                })
+        
+        return {
+            "status": "success",
+            "message": f"Initiated {num_calls} test calls",
+            "calls": calls
+        }
+        
+    except Exception as e:
+        logger.error(f"Error in batch call creation: {str(e)}")
+        return {
+            "status": "error",
+            "message": str(e)
+        }
+
+@router.get("/batch-status")
+async def get_batch_status():
+    """Get the status of all active test calls."""
+    try:
+        result = supabase_client.table('voice_conversations')\
+            .select('*')\
+            .order('created_at', desc=True)\
+            .limit(10)\
+            .execute()
+        
+        calls = []
+        for record in result.data:
+            calls.append({
+                "simulation_id": record["simulation_id"],
+                "call_sid": record["call_sid"],
+                "status": record["status"],
+                "phone_number": record["phone_number"],
+                "transcript": record.get("transcript", [])
+            })
+        
+        return {
+            "status": "success",
+            "calls": calls
+        }
+    except Exception as e:
+        logger.error(f"Error getting batch status: {str(e)}")
+        return {
+            "status": "error",
+            "message": str(e)
+        }
+
+@router.post("/multi-call")
+async def make_multiple_calls(to_number: str, num_calls: int = 1):
+    """Make multiple calls by invoking /test-call endpoint multiple times."""
+    if num_calls > 10:
+        return {
+            "status": "error",
+            "message": "Maximum number of concurrent calls is 10"
+        }
+    
+    try:
+        global job_counter
+        job_counter += 1
+        current_job_id = f"job_{job_counter}"
+        
+        calls = []
+        for i in range(num_calls):
+            try:
+                # Initialize Twilio client
+                client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+                
+                # Create call record first with the job ID
+                call_record = await create_call_record(
+                    simulation_id=current_job_id,
+                    call_sid=f"pending_{i}",  # Temporary call_sid
+                    phone_number=to_number,
+                    status="initiated"
+                )
+                
+                # Add a delay between calls
+                if i > 0:
+                    await asyncio.sleep(10)
+                
+                # Make the call
+                call = client.calls.create(
+                    to=to_number,
+                    from_=TWILIO_PHONE_NUMBER,
+                    url=f"https://9903-68-65-171-65.ngrok-free.app/incoming-call",
+                    record=True,
+                    status_callback=f"https://9903-68-65-171-65.ngrok-free.app/call-status",
+                    status_callback_event=['initiated', 'ringing', 'answered', 'completed']
+                )
+                
+                # Update the call record with the Twilio call_sid
+                await update_call_record(
+                    simulation_id=current_job_id,
+                    call_sid=f"pending_{i}",
+                    updates={
+                        "twilio_call_sid": call.sid,
+                        "call_sid": call.sid,  # Use Twilio's call_sid as our call_sid
+                        "transcript": []  # Initialize empty transcript array
+                    }
+                )
+                
+                calls.append({
+                    "job_id": current_job_id,
+                    "call_number": i + 1,
+                    "call_sid": call.sid,
+                    "twilio_call_sid": call.sid,
+                    "to_number": to_number,
+                    "status": "initiated"
+                })
+                
+                logger.info(f"Initiated call {i + 1} with job ID: {current_job_id}, Twilio call_sid: {call.sid}")
+                
+            except Exception as e:
+                logger.error(f"Error making call {i + 1}: {str(e)}")
+                calls.append({
+                    "job_id": current_job_id,
+                    "call_number": i + 1,
+                    "status": "error",
+                    "message": str(e)
+                })
+        
+        return {
+            "status": "success",
+            "message": f"Initiated {num_calls} test calls",
+            "job_id": current_job_id,
+            "calls": calls
+        }
+        
+    except Exception as e:
+        logger.error(f"Error in multiple call creation: {str(e)}")
+        return {
+            "status": "error",
+            "message": str(e)
         } 
