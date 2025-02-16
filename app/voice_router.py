@@ -832,7 +832,7 @@ async def execute_large_calls(to_number: str, total_calls: int = 2):
             # Add a delay between batches
             if batch < num_batches - 1:
                 logger.info(f"Batch {batch + 1} completed, waiting before starting next batch")
-                await asyncio.sleep(15)
+                await asyncio.sleep(10)
         
         return {
             "status": "success",
