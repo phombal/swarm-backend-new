@@ -1,102 +1,127 @@
-# Stratify Testing Platform
+# Swarm Voice AI Testing Platform - Backend
 
-A testing platform for simulating concurrent phone calls to test the Stratify voice agent using Twilio and OpenAI's Realtime API.
+A sophisticated voice call platform that enables AI-powered phone conversations using OpenAI's GPT-4, Twilio for telephony, and Supabase for data storage. The platform supports configurable AI behaviors, batch calling, and detailed conversation analysis.
 
 ## Features
 
-- Simulate multiple concurrent calls to test voice agent performance
-- Configure custom test scenarios with specific conversation flows
-- Real-time monitoring of test progress and results
-- Detailed analytics and transcripts for each call
-- Scalable architecture supporting hundreds of simultaneous calls
-- Integration with Twilio for call handling
-- Integration with OpenAI's Realtime API for voice processing
+- **AI-Powered Conversations**: Utilizes OpenAI's GPT-4 for natural, context-aware conversations
+- **Configurable AI Behavior**: Customize accent, industry context, speaking pace, and more
+- **Batch Call Support**: Make multiple calls simultaneously with controlled batching
+- **Real-time Transcription**: Capture and store conversation transcripts
+- **Conversation Analysis**: Detailed analysis of call quality, metrics, and performance
+- **WebSocket Integration**: Real-time audio streaming and processing
+- **Database Integration**: Persistent storage of call records and analytics
 
 ## Prerequisites
 
 - Python 3.8+
-- Twilio account with phone number
-- OpenAI API key with access to Realtime API
-- Supabase account for database
-- Environment variables configured (see `.env.example`)
+- OpenAI API Key
+- Twilio Account (Account SID and Auth Token)
+- Supabase Account (URL and API Key)
+- SSL Certificate for WebSocket connections
 
 ## Installation
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/stratify-testing-platform.git
-cd stratify-testing-platform
+git clone <repository-url>
+cd <repository-directory>
 ```
 
-2. Create and activate a virtual environment:
-```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
-
-3. Install dependencies:
+2. Install dependencies:
 ```bash
 pip install -r requirements.txt
 ```
 
-4. Copy the environment template and configure your variables:
-```bash
-cp .env.example .env
-# Edit .env with your configuration
+3. Set up environment variables in `.env`:
+```env
+OPENAI_API_KEY=your_openai_api_key
+TWILIO_ACCOUNT_SID=your_twilio_account_sid
+TWILIO_AUTH_TOKEN=your_twilio_auth_token
+TWILIO_PHONE_NUMBER=your_twilio_phone_number
+SUPABASE_URL=your_supabase_url
+SUPABASE_KEY=your_supabase_key
 ```
 
 ## Usage
 
-1. Start the FastAPI server:
+### Starting the Server
+
 ```bash
 uvicorn app.main:app --reload
 ```
 
-2. Create a test simulation:
+### Making a Test Call
+
 ```bash
-curl -X POST http://localhost:8000/simulations/create \
-  -H "Content-Type: application/json" \
-  -d '{
-    "target_phone": "+1234567890",
-    "concurrent_calls": 5,
-    "scenario": {
-      "voice": "sage",
-      "system_message": "You are a customer calling to place an order.",
-      "max_turns": 10,
-      "conversation_flow": [
-        {"role": "user", "content": "I would like to place an order for delivery."},
-        {"role": "assistant", "content": "I will help you with that. What would you like to order?"}
-      ]
-    }
-  }'
+curl -X POST "https://your-domain/test-call?to_number=+1234567890"
 ```
 
-3. Monitor simulation status:
+### Making Batch Calls
+
 ```bash
-curl http://localhost:8000/simulations/status/{simulation_id}
+curl -X POST "https://your-domain/batch-test-calls?to_number=+1234567890&num_calls=2"
 ```
 
-4. View simulation results:
+### Making Large Batch Calls (with controlled execution)
+
 ```bash
-curl http://localhost:8000/simulations/results/{simulation_id}
+curl -X POST "https://your-domain/execute_large_calls?to_number=+1234567890&total_calls=4"
 ```
 
-## API Documentation
+### Checking Call Status
 
-Once the server is running, visit `http://localhost:8000/docs` for the complete API documentation.
+```bash
+curl "https://your-domain/batch-status"
+```
 
-## Environment Variables
+### Getting Call Transcript
 
-- `TWILIO_ACCOUNT_SID`: Your Twilio Account SID
-- `TWILIO_AUTH_TOKEN`: Your Twilio Auth Token
-- `TWILIO_PHONE_NUMBER`: Your Twilio Phone Number
-- `OPENAI_API_KEY`: Your OpenAI API Key
-- `SUPABASE_URL`: Your Supabase Project URL
-- `SUPABASE_KEY`: Your Supabase Project API Key
-- `STRATIFY_BASE_URL`: Base URL of your Stratify instance
-- `MAX_CONCURRENT_CALLS`: Maximum number of concurrent calls allowed
-- `DEFAULT_MAX_TURNS`: Default maximum conversation turns
-- `JWT_SECRET_KEY`: Secret key for JWT token generation
+```bash
+curl "https://your-domain/transcript?call_sid=CAXXXXXXXXXXXXXXX"
+```
+
+## Configuration
+
+### Test Configuration Schema
+
+The platform supports customizing AI behavior through test configurations:
+
+```json
+{
+  "accent_types": ["neutral", "British", "American"],
+  "industry": ["restaurant", "retail", "healthcare"],
+  "speaking_pace": ["slow", "medium", "fast"],
+  "emotion_types": ["professional", "friendly", "empathetic"],
+  "background_noise": ["quiet", "moderate", "busy"],
+  "max_turns": [5, 10, 15],
+  "complexity_level": ["simple", "moderate", "complex"],
+  "prompt_template": ["custom instruction templates"]
+}
+```
+
+## Analysis Metrics
+
+The platform provides detailed analysis of each conversation, including:
+
+- Quality Metrics (coherence, task completion, context retention)
+- Technical Metrics (latency, token usage, memory usage)
+- Industry-Specific Metrics (order accuracy, required clarifications)
+- Semantic Analysis (intent classification, entity extraction)
+
+## Error Handling
+
+The platform includes comprehensive error handling and logging:
+- Call status monitoring
+- WebSocket connection management
+- Database operation verification
+- API response validation
+
+## Security
+
+- All API keys and sensitive data should be stored in environment variables
+- SSL/TLS encryption for WebSocket connections
+- Supabase authentication for database access
 
 ## Contributing
 
@@ -108,4 +133,8 @@ Once the server is running, visit `http://localhost:8000/docs` for the complete 
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+[Your License Here]
+
+## Support
+
+For support, please [create an issue](your-issue-tracker-url) or contact [your-contact-info].
